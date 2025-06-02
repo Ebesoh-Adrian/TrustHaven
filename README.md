@@ -271,6 +271,9 @@ Here's how we can modify and improve the design using your existing React projec
 
 Currently, your `HomePage.tsx` likely imports components like `Hero.tsx`, `FeaturedListing.tsx`, `HowItWorks.tsx`, `Testimonials.tsx`. To achieve a better design, think of `HomePage.tsx` as the orchestrator of these sections, focusing on clear separation and flow, similar to ObservIQ's distinct content blocks.
 
+![observiq](https://github.com/user-attachments/assets/6b8c886a-5ceb-42cb-9e7a-b4160c166819)
+
+
 * **Define Clear Sections:** Wrap each major component (e.g., `<Hero />`, `<FeaturedListing />`) within its own `<section>` tag in `HomePage.tsx`.
 * **Add Section Headings & Subheadings:** Each `<section>` should start with a compelling `<h2>` or `<h3>` that summarizes its content, followed by a brief descriptive paragraph. This provides context, just like ObservIQ uses "Take Command Of Your Telemetry Data," "Introducing BindPlane OP," etc.
 * **Utilize Spacing (Padding/Margin):** Apply generous vertical padding to each section using Tailwind CSS utilities (e.g., `py-16`, `md:py-24`). This creates "breathing room" and prevents the page from feeling cluttered. ObservIQ uses significant white space between its content blocks.
