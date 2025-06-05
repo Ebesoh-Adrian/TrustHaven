@@ -77,7 +77,7 @@ const CategoryCard: React.FC<{ category: CategoryInfo }> = ({ category }) => {
 const CategorySection: React.FC = () => {
   return (
     <section className="py-16 bg-gray-50">
-      <div className="container mx-auto px-4">
+      <div className="container mx-auto px-4 md:px-8">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">Browse by Category</h2>
           <p className="text-gray-600 max-w-2xl mx-auto">
@@ -85,7 +85,7 @@ const CategorySection: React.FC = () => {
           </p>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
           {categories.map((category) => (
             <CategoryCard key={category.id} category={category} />
           ))}

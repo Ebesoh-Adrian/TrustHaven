@@ -4,15 +4,22 @@ import CategorySection from '../components/home/CategorySection';
 import FeaturedListings from '../components/home/FeaturedListings';
 import HowItWorks from '../components/home/HowItWorks';
 import Testimonials from '../components/home/Testimonials';
+import StepInfographic from '../components/home/StepInfographic';
+import JoinCommunity from '../components/home/JoinCommunity';
+// import CoolBackground from '../components/home/CoolBackground';
 
 const HomePage: React.FC = () => {
   return (
     <div>
-      <Hero />
+      {/* <CoolBackground> */}
+        <Hero />
+      {/* </CoolBackground> */}
       <CategorySection />
       <FeaturedListings />
       <HowItWorks />
+      <StepInfographic />
       <Testimonials />
+      <JoinCommunity />
     </div>
   );
 };

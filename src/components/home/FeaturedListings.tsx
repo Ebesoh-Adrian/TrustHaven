@@ -103,7 +103,7 @@ const featuredListings: Listing[] = [
 const FeaturedListings: React.FC = () => {
   return (
     <section className="py-16">
-      <div className="container mx-auto px-4">
+      <div className="container mx-auto px-4 md:px-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8">
           <div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">Featured Listings</h2>

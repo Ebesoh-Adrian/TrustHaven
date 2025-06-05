@@ -37,8 +37,10 @@ const ListingCard: React.FC<ListingCardProps> = ({ listing, featured = false }) 
   return (
     <Link 
       to={`/listing/${listing.id}`}
-      className={`block bg-white rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow ${
-        featured ? 'border-2 border-primary' : ''
+      className={`block bg-white rounded-lg overflow-hidden transition-shadow ${
+        featured 
+          ? 'shadow-[0_4px_24px_0_rgba(226,81,65,0.18)] hover:shadow-[0_8px_32px_0_rgba(226,81,65,0.28)]'
+          : 'shadow-md hover:shadow-lg'
       }`}
     >
       {/* Image container */}
