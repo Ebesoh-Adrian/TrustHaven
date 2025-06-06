@@ -39,7 +39,7 @@ const Hero: React.FC = () => {
   useEffect(() => {
     let typingTimeout: ReturnType<typeof setTimeout>;
     const currentWord = words[typeIdx];
-    
+
     // Typing speed (faster when typing, slower when deleting)
     const typingSpeed = isDeleting ? 50 : 150;
     // Pause at the end of typing
@@ -72,7 +72,8 @@ const Hero: React.FC = () => {
   }, [charIdx, isDeleting, typeIdx, words]);
 
   return (
-    <div className="relative min-h-[600px] flex flex-col">
+    // ADDED pt-20 HERE to push content down
+    <div className="relative min-h-[600px] flex flex-col pt-20">
       {/* Hero Content */}
       <div className="flex flex-col items-center justify-center flex-1 text-center px-4 md:px-8 max-w-screen-lg mx-auto w-full">
         {/* Announcement Banner */}
@@ -150,7 +151,7 @@ const Hero: React.FC = () => {
         {/* <div className="mt-6 flex flex-wrap items-center text-sm justify-center">
           <span className="mr-2 text-gray-400">Popular:</span>
           {popularSearches.map((term, index) => (
-            <a 
+            <a
               key={index}
               href={`/listings?q=${term.toLowerCase()}`}
               className="mr-2 mb-2 bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full text-gray-700 transition-colors"
