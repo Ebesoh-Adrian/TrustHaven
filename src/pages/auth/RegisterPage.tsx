@@ -77,7 +77,7 @@ const RegisterPage: React.FC = () => {
   const [phoneInput, setPhoneInput] = useState(''); // Separate state for phone number input in OTP flow
   const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const recaptchaContainerRef = useRef<HTMLHTMLDivElement>(null); // Ref for the reCAPTCHA container
+  const recaptchaContainerRef = useRef<HTMLDivElement>(null); // Ref for the reCAPTCHA container
 
 
   const [formData, setFormData] = useState<RegisterFormData>({
