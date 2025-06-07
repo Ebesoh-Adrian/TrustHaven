@@ -15,8 +15,8 @@ import {
   Info,
   ExternalLink
 } from 'lucide-react';
-import { Button } from '../components/ui/Button';
-import { Listing } from '../types';
+import { Button } from '../../components/ui/Button';
+import { Listing } from '../../types';
 
 // Sample listing data (in a real app, this would be fetched from an API)
 const sampleListings: Record<string, Listing> = {

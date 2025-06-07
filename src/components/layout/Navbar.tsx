@@ -81,7 +81,7 @@ const Navbar = () => {
   };
 
   const navLinks = [
-      { name: 'Home', path: '/home' },
+      { name: 'Home', path: '/' },
       { name: 'About', path: '/about' }, // Changed /About to /about for consistency
     {
       name: 'Browse', // New "Browse" dropdown
