@@ -18,7 +18,7 @@ const firebaseConfig = {
   appId: "1:596883432737:web:725f3bd10104ef32248a60",
   measurementId: "G-0SWNDP36V0"
 };
-
+// VITE_CLOUD_FUNCTIONS_BASE_URL_PROD="https://us-central1-trusthaven-webapp.cloudfunctions.net"
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

@@ -7,7 +7,7 @@ import { doc, getDoc } from 'firebase/firestore'; // Firestore for fetching user
 // For example, if your firebase.ts is in 'src/firebase/firebase.ts', use:
 // Update the path below to the actual location of your firebase.ts file.
 // For example, if your firebase.ts is in 'src/firebase/firebase.ts', use:
-import { auth, db } from '../firebase/firebase'; // Adjust the path as needed
+import { auth, db } from '../../firebase/firebase'; // Adjust the path as needed
 import { UserProfile, UserRole } from '../types'; // Import your custom UserProfile and UserRole types
 
 // 1. Define the shape of your AuthContext data

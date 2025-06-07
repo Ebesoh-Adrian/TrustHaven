@@ -1,10 +1,11 @@
 // trusthaven-frontend/src/pages/auth/RegisterPage.tsx
 
-import React, { useState, useRef, useEffect } from 'react'; // Added useEffect
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft, CheckCircle, XCircle } from 'lucide-react'; // Added CheckCircle, XCircle for toast
+import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
-import axios from 'axios';
+// IMPORTANT: Ensure this imports your custom Axios instance from src/api/axios.js
+import axios from '../../api/axios'; // Corrected import to use your custom instance
 
 // Firebase Client SDK Imports
 import {
@@ -16,8 +17,9 @@ import {
   ConfirmationResult,
 } from 'firebase/auth';
 import { doc, setDoc, Timestamp, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../../firebase/firebase'; // Ensure correct path for firebase.ts
-import { UserRole } from '../../types'; // Ensure correct path for types
+// Import auth, db, AND firebaseConfig from your firebase.ts file
+import { auth, db } from '../../../firebase/firebase'; // Ensure this path is correct
+import { UserRole } from '../../types';
 
 // Define a type for your form data
 interface RegisterFormData {
@@ -43,8 +45,7 @@ const RegisterPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null); // For form-specific errors
-  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
 
   // State for global toast messages (success/error)
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -74,16 +75,16 @@ const RegisterPage: React.FC = () => {
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email'); // 'email' or 'phone'
 
   // State for phone authentication specific inputs
-  const [phoneInput, setPhoneInput] = useState(''); // Separate state for phone number input in OTP flow
+  const [phoneInput, setPhoneInput] = useState('');
   const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const recaptchaContainerRef = useRef<HTMLDivElement>(null); // Ref for the reCAPTCHA container
+  const recaptchaContainerRef = useRef<HTMLDivElement>(null);
 
 
   const [formData, setFormData] = useState<RegisterFormData>({
     fullName: '',
     email: '',
-    phone: '', // This 'phone' is only used if registering via email/password
+    phone: '',
     password: '',
     confirmPassword: '',
     agreeToTerms: false,
@@ -98,6 +99,8 @@ const RegisterPage: React.FC = () => {
       [name]: type === 'checkbox' ? checked : value
     }));
   };
+
+  const navigate = useNavigate();
 
   // Helper function to create Firestore user profile after successful auth
   const createUserProfileInFirestore = async (
@@ -122,12 +125,9 @@ const RegisterPage: React.FC = () => {
       console.log('User profile created in Firestore.');
     } else {
       console.log('Existing user profile found in Firestore, merging data.');
-      // Update last login time and potentially phone number if it wasn't there before
       await setDoc(userDocRef, {
         lastLogin: Timestamp.now(),
         phoneNumber: phoneNumber || userDocSnap.data().phoneNumber || null,
-        // If role was not set during initial signup, set it now.
-        // Or if it was, ensure it's not overwritten if it was previously set.
         role: userDocSnap.data().role || formData.selectedRole,
       }, { merge: true });
     }
@@ -162,23 +162,28 @@ const RegisterPage: React.FC = () => {
     }
 
     try {
-      // Dynamically determine the Cloud Functions base URL
+      // Get projectId directly from firebaseConfig
+      const projectId = firebaseConfig.projectId;
+      if (!projectId) {
+        throw new Error('Firebase Project ID is not configured in firebase.ts');
+      }
+
+      // Dynamically determine the Cloud Functions base URL without .env variables for paths
       const FUNCTIONS_BASE_URL = import.meta.env.PROD
-        ? import.meta.env.VITE_CLOUD_FUNCTIONS_BASE_URL_PROD
-        : import.meta.env.VITE_CLOUD_FUNCTIONS_BASE_URL_DEV;
+        ? `https://${projectId}.cloudfunctions.net` // Production URL
+        : `http://127.0.0.1:5001`; // Local emulator URL
 
       // Construct the full Cloud Function URL
-      const FUNCTIONS_SIGNUP_URL = `${FUNCTIONS_BASE_URL}/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/signup`;
+      const FUNCTIONS_SIGNUP_URL = `${FUNCTIONS_BASE_URL}/us-central1/signup`; // Removed projectId from the path
 
+      // Use the 'axios' instance imported from '../../api/axios'
       const response = await axios.post(FUNCTIONS_SIGNUP_URL, {
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
-        phone: formData.phone, // This phone is for the initial profile creation, not for auth itself
+        phone: formData.phone,
         selectedRole: formData.selectedRole,
-      }, {
-        withCredentials: true
-      });
+      }); // withCredentials: true is set in '../../api/axios' now
 
       console.log('Registration successful:', response.data);
       displayToast('Account created successfully! Please sign in with your email and password.', 'success');
@@ -188,8 +193,8 @@ const RegisterPage: React.FC = () => {
       if (axios.isAxiosError(err)) {
         const errorMessage = err.response?.data?.message || err.message;
         console.error('Registration failed:', errorMessage);
-        setError(errorMessage); // Set form-specific error
-        displayToast(errorMessage, 'error'); // Also show as global toast
+        setError(errorMessage);
+        displayToast(errorMessage, 'error');
       } else {
         const errorMessage = (err as Error).message;
         console.error('Registration failed:', errorMessage);
@@ -204,7 +209,7 @@ const RegisterPage: React.FC = () => {
   // --- Google Sign-up ---
   const handleGoogleSignUp = async () => {
     setIsLoading(true);
-    setError(null); // Clear form-specific errors
+    setError(null);
 
     if (!formData.agreeToTerms) {
       setError('You must agree to the Terms of Service and Privacy Policy before signing up with Google.');
@@ -238,9 +243,11 @@ const RegisterPage: React.FC = () => {
         message = 'An account with this email already exists using different sign-in methods (e.g., email/password). Try logging in with the existing method or linking accounts.';
       } else if (firebaseError.code === 'auth/network-request-failed') {
         message = 'Network error during Google sign-up. Check your internet connection.';
+      } else if (firebaseError.code === 'auth/unauthorized-domain') {
+        message = 'Google sign-in failed: Domain not authorized. Check Firebase Authentication settings.';
       }
-      setError(message); // Set form-specific error
-      displayToast(message, 'error'); // Also show as global toast
+      setError(message);
+      displayToast(message, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -250,9 +257,9 @@ const RegisterPage: React.FC = () => {
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null); // Clear form-specific errors
+    setError(null);
 
-    if (!phoneInput) { // Use phoneInput state for this flow
+    if (!phoneInput) {
       setError('Please enter your phone number.');
       setIsLoading(false);
       return;
@@ -273,32 +280,28 @@ const RegisterPage: React.FC = () => {
         throw new Error("reCAPTCHA container not found. It's required for phone authentication.");
       }
 
-      // Clear any previous reCAPTCHA instances before creating a new one
+      // Clear any existing reCAPTCHA instance before creating a new one
       if (window.recaptchaVerifier) {
         window.recaptchaVerifier.clear();
       }
 
       window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-        'size': 'invisible', // Can be 'normal' for a visible widget
+        'size': 'invisible',
         'callback': (response: unknown) => {
-          // reCAPTCHA solved, this callback fires when the user is verified.
           console.log('reCAPTCHA solved:', response);
         },
         'expired-callback': () => {
-          // Response expired. Ask user to solve reCAPTCHA again.
           console.warn('reCAPTCHA expired.');
           const msg = 'reCAPTCHA expired. Please try again.';
-          setError(msg); // Set form-specific error
-          displayToast(msg, 'error'); // Also show as global toast
-          setIsLoading(false); // Stop loading if reCAPTCHA expires
+          setError(msg);
+          displayToast(msg, 'error');
+          setIsLoading(false);
         }
       });
 
-      // Explicitly call verify if using invisible reCAPTCHA before signInWithPhoneNumber,
-      // though signInWithPhoneNumber often implicitly handles it.
       await window.recaptchaVerifier.verify();
 
-      const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier); // Use phoneInput
+      const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
       displayToast('OTP sent to your phone! Please enter it below.', 'success');
     } catch (err) {
@@ -318,8 +321,8 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/captcha-check-failed') {
         message = 'reCAPTCHA verification failed. Please try again.';
       }
-      setError(message); // Set form-specific error
-      displayToast(message, 'error'); // Also show as global toast
+      setError(message);
+      displayToast(message, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -329,7 +332,7 @@ const RegisterPage: React.FC = () => {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null); // Clear form-specific errors
+    setError(null);
 
     if (!otp) {
       setError('Please enter the OTP.');
@@ -346,7 +349,6 @@ const RegisterPage: React.FC = () => {
       const result = await confirmationResult.confirm(otp);
       const user = result.user;
 
-      // Ensure the user's full name from the form is passed here for profile creation
       await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName);
 
       displayToast('Phone number verified and account created!', 'success');
@@ -362,8 +364,8 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/user-disabled') {
         message = 'This user account has been disabled.';
       }
-      setError(message); // Set form-specific error
-      displayToast(message, 'error'); // Also show as global toast
+      setError(message);
+      displayToast(message, 'error');
     } finally {
       setIsLoading(false);
     }
@@ -390,7 +392,6 @@ const RegisterPage: React.FC = () => {
           </div>
         </Link>
         <h2 className="text-center text-3xl font-bold text-gray-900 flex items-center justify-center relative">
-          {/* Back to Home Link */}
           <Link to="/" className="absolute left-0 top-1/2 -translate-y-1/2 ml-4 text-gray-600 hover:text-gray-900">
             <ArrowLeft className="w-6 h-6" />
           </Link>
@@ -407,12 +408,10 @@ const RegisterPage: React.FC = () => {
             </div>
           )}
 
-          {/* Styled "Sign Up as" Text */}
-          <p className="mt-2 mb-4 text-center text-md font-semibold text-gray-700"> {/* Increased font, added weight and margin */}
+          <p className="mt-2 mb-4 text-center text-md font-semibold text-gray-700">
             Sign Up as
           </p>
 
-          {/* Role Selection Buttons at the top */}
           <div className="mb-6 flex justify-center space-x-4">
             <Button
               type="button"
@@ -431,9 +430,7 @@ const RegisterPage: React.FC = () => {
               Business
             </Button>
           </div>
-          {/* End Role Selection Buttons */}
 
-          {/* Conditional rendering of Email/Password Form */}
           {authMethod === 'email' && (
             <form className="space-y-6" onSubmit={handleEmailPasswordSubmit}>
               <div>
@@ -596,10 +593,8 @@ const RegisterPage: React.FC = () => {
             </form>
           )}
 
-          {/* Conditional rendering of Phone Number (OTP) Form */}
           {authMethod === 'phone' && (
-            <form className="space-y-6" onSubmit={e => e.preventDefault()}> {/* Prevent default form submission */}
-              {/* This full name field will only be visible when phone auth is chosen */}
+            <form className="space-y-6" onSubmit={e => e.preventDefault()}>
               <div>
                 <label htmlFor="fullNamePhone" className="block text-sm font-medium text-gray-700">
                   Full Name
@@ -609,11 +604,11 @@ const RegisterPage: React.FC = () => {
                     <User className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
-                    id="fullNamePhone" // Unique ID
-                    name="fullName" // Keep name as 'fullName' to update formData correctly
+                    id="fullNamePhone"
+                    name="fullName"
                     type="text"
                     required
-                    value={formData.fullName} // Use formData.fullName
+                    value={formData.fullName}
                     onChange={handleChange}
                     className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
                     placeholder="John Doe"
@@ -632,20 +627,20 @@ const RegisterPage: React.FC = () => {
                         <Phone className="h-5 w-5 text-gray-400" />
                       </div>
                       <input
-                        id="phoneInput" // Unique ID
-                        name="phoneInput" // Unique name for this state
+                        id="phoneInput"
+                        name="phoneInput"
                         type="tel"
                         value={phoneInput}
                         onChange={(e) => setPhoneInput(e.target.value)}
                         className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
                         placeholder="+237 6XX XXX XXX"
-                        required // Make it required for this flow
+                        required
                       />
                     </div>
                   </div>
-                  <div className="flex items-center"> {/* Keep agreement checkbox */}
+                  <div className="flex items-center">
                     <input
-                      id="agreeToTermsPhone" // Unique ID for phone auth form
+                      id="agreeToTermsPhone"
                       name="agreeToTerms"
                       type="checkbox"
                       required
@@ -666,7 +661,7 @@ const RegisterPage: React.FC = () => {
                   </div>
                   <Button
                     type="button"
-                    className="w-full flex justify-center py-2 px-4" // Main action button, so not outline
+                    className="w-full flex justify-center py-2 px-4"
                     onClick={handleSendOtp}
                     isLoading={isLoading}
                   >
@@ -694,7 +689,7 @@ const RegisterPage: React.FC = () => {
                   </div>
                   <Button
                     type="button"
-                    className="w-full flex justify-center py-2 px-4" // Main action button, so not outline
+                    className="w-full flex justify-center py-2 px-4"
                     onClick={handleVerifyOtp}
                     isLoading={isLoading}
                   >
@@ -702,21 +697,18 @@ const RegisterPage: React.FC = () => {
                   </Button>
                 </>
               )}
-              {/* reCAPTCHA container - MUST BE PRESENT for Phone Auth */}
-              {/* This div must be in the DOM for RecaptchaVerifier to attach to. */}
-              {/* It's usually invisible by default but needs to be rendered. */}
               <div id="recaptcha-container" ref={recaptchaContainerRef} className="mt-4"></div>
               <Button
                 type="button"
                 variant="outline"
                 className="w-full"
                 onClick={() => {
-                  setAuthMethod('email'); // Switch back to email form
-                  setConfirmationResult(null); // Reset OTP flow
-                  setPhoneInput(''); // Clear phone input
-                  setOtp(''); // Clear OTP input
-                  setError(null); // Clear errors
-                  if (window.recaptchaVerifier) { // Clear reCAPTCHA instance
+                  setAuthMethod('email');
+                  setConfirmationResult(null);
+                  setPhoneInput('');
+                  setOtp('');
+                  setError(null);
+                  if (window.recaptchaVerifier) {
                     window.recaptchaVerifier.clear();
                   }
                 }}
@@ -726,7 +718,6 @@ const RegisterPage: React.FC = () => {
             </form>
           )}
 
-          {/* Or separator */}
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
@@ -738,41 +729,37 @@ const RegisterPage: React.FC = () => {
             </div>
 
             <div className="mt-6 space-y-3">
-              {/* Google Sign-up Button */}
               <Button
                 type="button"
                 variant="outline"
-                className="w-full flex justify-center py-2 px-4 items-center"
+                className="w-full"
                 onClick={handleGoogleSignUp}
                 isLoading={isLoading}
               >
-                <Globe className="w-5 h-5 mr-2" />
+                {!isLoading && <Globe className="w-5 h-5 mr-2" />}
                 Sign Up with Google
               </Button>
-
-              {/* Phone Sign-up Button (visible only if email method is active) */}
-              {authMethod === 'email' && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full flex justify-center py-2 px-4 items-center"
-                  onClick={() => {
-                    setAuthMethod('phone');
-                    // Clear email/password fields if switching from email method
-                    setFormData(prev => ({ ...prev, email: '', password: '', confirmPassword: '', phone: '' }));
-                    setError(null); // Clear errors when switching method
-                  }}
-                >
-                  <Phone className="w-5 h-5 mr-2" />
-                  Sign Up with Phone Number
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setAuthMethod('phone');
+                  setError(null);
+                  if (window.recaptchaVerifier) {
+                    window.recaptchaVerifier.clear();
+                  }
+                }}
+              >
+                <Phone className="w-5 h-5 mr-2" />
+                Sign Up with Phone Number
+              </Button>
             </div>
           </div>
-          {/* Moved 'Already have an account?' link to the very bottom */}
-          <p className="mt-4 text-center text-sm text-gray-600">
+
+          <p className="mt-8 text-center text-sm text-gray-600">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary hover:text-primary-dark">
+            <Link to="/login" className="font-medium text-primary hover:text-primary-dark">
               Sign in
             </Link>
           </p>
