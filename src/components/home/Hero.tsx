@@ -9,7 +9,7 @@ const Hero: React.FC = () => {
   const popularSearches = ['Apartments', 'Used Cars', 'Web Design', 'Restaurants', 'Plumbers'];
 
   // Animated counter for -30%
-  const [percent, setPercent] = useState(0);
+  const [percent, setPercent] = useState<number>(0);
   useEffect(() => {
     let start = 0;
     const end = -30;
@@ -31,10 +31,10 @@ const Hero: React.FC = () => {
 
   // Typewriter animation for headline
   const words = ['Listings', 'Businesses', 'Services'];
-  const [typeIdx, setTypeIdx] = useState(0);
-  const [displayText, setDisplayText] = useState(words[0]);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [charIdx, setCharIdx] = useState(0); // Start from 0 to type first word
+  const [typeIdx, setTypeIdx] = useState<number>(0);
+  const [displayText, setDisplayText] = useState<string>(words[0]);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [charIdx, setCharIdx] = useState<number>(0);
 
   useEffect(() => {
     let typingTimeout: ReturnType<typeof setTimeout>;
@@ -48,7 +48,7 @@ const Hero: React.FC = () => {
     if (!isDeleting && charIdx < currentWord.length) {
       // Typing
       typingTimeout = setTimeout(() => {
-        setCharIdx(prev => prev + 1);
+        setCharIdx((prev: number) => prev + 1);
       }, typingSpeed);
     } else if (!isDeleting && charIdx === currentWord.length) {
       // Pause at the end of typing
@@ -58,12 +58,12 @@ const Hero: React.FC = () => {
     } else if (isDeleting && charIdx > 0) {
       // Deleting
       typingTimeout = setTimeout(() => {
-        setCharIdx(prev => prev - 1);
+        setCharIdx((prev: number) => prev - 1);
       }, typingSpeed);
     } else {
       // Move to next word
       setIsDeleting(false);
-      setTypeIdx(prev => (prev + 1) % words.length);
+      setTypeIdx((prev: number) => (prev + 1) % words.length);
       setCharIdx(0);
     }
 
@@ -111,7 +111,10 @@ const Hero: React.FC = () => {
             {/* Location Selector */}
             <div className="flex items-center bg-gray-100 rounded-md px-3 py-2 md:w-1/4">
               <MapPin className="text-primary w-5 h-5 mr-2" />
-              <select className="bg-transparent text-gray-800 w-full focus:outline-none appearance-none">
+              <select 
+                className="bg-transparent text-gray-800 w-full focus:outline-none appearance-none"
+                aria-label="Select location"
+              >
                 <option>Buea</option>
                 <option>Douala</option>
                 <option>Yaoundé</option>
@@ -122,7 +125,10 @@ const Hero: React.FC = () => {
             </div>
             {/* Category Selector */}
             <div className="bg-gray-100 rounded-md px-3 py-2 md:w-1/4">
-              <select className="bg-transparent text-gray-800 w-full focus:outline-none appearance-none">
+              <select 
+                className="bg-transparent text-gray-800 w-full focus:outline-none appearance-none"
+                aria-label="Select category"
+              >
                 <option value="">All Categories</option>
                 <option>Homes</option>
                 <option>Cars</option>
@@ -139,6 +145,7 @@ const Hero: React.FC = () => {
                 type="text"
                 placeholder="What are you looking for?"
                 className="bg-transparent text-gray-800 w-full focus:outline-none"
+                aria-label="Search input"
               />
             </div>
             {/* Search Button */}
