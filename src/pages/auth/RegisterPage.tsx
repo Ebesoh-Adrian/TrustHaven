@@ -16,7 +16,7 @@ import {
   ConfirmationResult,
 } from 'firebase/auth';
 import { doc, setDoc, Timestamp, getDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase/firebase'; // Ensure correct path for firebase.ts
+import { auth, db } from '../../../firebase/firebase'; // Ensure correct path for firebase.ts
 import { UserRole } from '../../types'; // Ensure correct path for types
 
 // Define a type for your form data

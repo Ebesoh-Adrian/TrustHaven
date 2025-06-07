@@ -11,7 +11,7 @@ import {
   signInWithPhoneNumber,
   ConfirmationResult,
 } from 'firebase/auth';
-import { app } from '../../firebase/firebase'; // Import Firebase config
+import { app } from '../../../firebase/firebase'; // Import Firebase config
 
 const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);

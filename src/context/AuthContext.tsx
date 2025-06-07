@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth'; // Firebase Auth for listening to auth state
 import { doc, getDoc } from 'firebase/firestore'; // Firestore for fetching user profile
-import { auth, db } from '../firebase'; // Import auth and db instances from your firebase.ts
+import { auth, db } from '../../firebase'; // Import auth and db instances from your firebase.ts
 import { UserProfile, UserRole } from '../types'; // Import your custom UserProfile and UserRole types
 
 // 1. Define the shape of your AuthContext data
