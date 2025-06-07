@@ -1,26 +1,307 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight } from 'lucide-react';
+// trusthaven-frontend/src/pages/auth/RegisterPage.tsx
+
+import React, { useState, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import axios from '../../api/axios';
+
+// Firebase Client SDK Imports
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  AuthError,
+  ConfirmationResult,
+} from 'firebase/auth';
+import { doc, setDoc, Timestamp, getDoc } from 'firebase/firestore';
+import { auth, db } from '../../firebase/firebase'; // Ensure correct path for firebase.ts
+import { UserRole } from '../../types'; // Ensure correct path for types
+
+// Define a type for your form data
+interface RegisterFormData {
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+  confirmPassword: string;
+  agreeToTerms: boolean;
+  selectedRole: UserRole;
+}
+
+// Declare window.recaptchaVerifier globally for Firebase RecaptchaVerifier
+declare global {
+  interface Window {
+    recaptchaVerifier: RecaptchaVerifier;
+    // Add any other global properties if necessary
+  }
+}
+
 
 const RegisterPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  // State to manage which authentication method's UI is active
+  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email'); // 'email' or 'phone'
+
+  // State for phone authentication specific inputs
+  const [phoneInput, setPhoneInput] = useState(''); // Separate state for phone number input in OTP flow
+  const [otp, setOtp] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const recaptchaContainerRef = useRef<HTMLDivElement>(null);
+
+  const [formData, setFormData] = useState<RegisterFormData>({
     fullName: '',
     email: '',
-    phone: '',
+    phone: '', // This 'phone' is only used if registering via email/password
     password: '',
     confirmPassword: '',
-    agreeToTerms: false
+    agreeToTerms: false,
+    selectedRole: 'explorer',
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  // Helper function to create Firestore user profile after successful auth
+  const createUserProfileInFirestore = async (
+    uid: string,
+    email: string | null,
+    phoneNumber: string | null,
+    displayName: string | null
+  ) => {
+    const userDocRef = doc(db, 'users', uid);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (!userDocSnap.exists()) {
+      await setDoc(userDocRef, {
+        uid: uid,
+        email: email,
+        username: displayName || email?.split('@')[0] || phoneNumber || 'New User',
+        phoneNumber: phoneNumber,
+        role: formData.selectedRole,
+        createdAt: Timestamp.now(),
+        status: 'active',
+      });
+      console.log('User profile created in Firestore.');
+    } else {
+      console.log('Existing user profile found in Firestore, merging data.');
+      // Update last login time and potentially phone number if it wasn't there before
+      await setDoc(userDocRef, { lastLogin: Timestamp.now(), phoneNumber: phoneNumber || userDocSnap.data().phoneNumber || null }, { merge: true });
+    }
+  };
+
+
+  // --- Email/Password Registration (via Cloud Function) ---
+  const handleEmailPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // TODO: Implement registration logic
-    setTimeout(() => setIsLoading(false), 1000);
+    setError(null);
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match.');
+      setIsLoading(false);
+      return;
+    }
+    if (formData.password.length < 8) {
+        setError('Password must be at least 8 characters long.');
+        setIsLoading(false);
+        return;
+    }
+    if (!formData.agreeToTerms) {
+      setError('You must agree to the Terms of Service and Privacy Policy.');
+      setIsLoading(false);
+      return;
+    }
+    if (formData.selectedRole === 'guardian') {
+      setError('Cannot register as a Guardian directly.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const FUNCTIONS_EMULATOR_URL = `http://127.0.0.1:5001/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/signup`;
+
+      const response = await axios.post(FUNCTIONS_EMULATOR_URL, {
+        email: formData.email,
+        password: formData.password,
+        fullName: formData.fullName,
+        phone: formData.phone,
+        selectedRole: formData.selectedRole,
+      }, {
+        withCredentials: true
+      });
+
+      console.log('Registration successful:', response.data);
+      alert('Account created successfully! Please sign in.');
+      navigate('/login');
+
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        console.error('Registration failed:', err.response?.data?.message || err.message);
+        setError(err.response?.data?.message || 'Registration failed. Please try again.');
+      } else {
+        console.error('Registration failed:', (err as Error).message);
+        setError('Registration failed. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Google Sign-up ---
+  const handleGoogleSignUp = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    if (!formData.agreeToTerms) {
+      setError('You must agree to the Terms of Service and Privacy Policy before signing up with Google.');
+      setIsLoading(false);
+      return;
+    }
+    if (formData.selectedRole === 'guardian') {
+      setError('Cannot register as a Guardian directly via Google Sign-up.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, user.displayName);
+
+      alert('Successfully signed up with Google!');
+      navigate('/dashboard');
+    } catch (err) {
+      const firebaseError = err as AuthError;
+      console.error('Google registration failed:', firebaseError.message, firebaseError.code);
+      let message = 'Google registration failed.';
+      if (firebaseError.code === 'auth/popup-closed-by-user') {
+        message = 'Google sign-in popup was closed.';
+      } else if (firebaseError.code === 'auth/cancelled-popup-request') {
+        message = 'Google sign-in popup already open or cancelled.';
+      } else if (firebaseError.code === 'auth/account-exists-with-different-credential') {
+        message = 'An account with this email already exists using different sign-in methods.';
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Phone Number (OTP) Sign-up - Step 1: Send OTP ---
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+
+    if (!phoneInput) { // Use phoneInput state for this flow
+      setError('Please enter your phone number.');
+      setIsLoading(false);
+      return;
+    }
+    if (!formData.agreeToTerms) {
+      setError('You must agree to the Terms of Service and Privacy Policy.');
+      setIsLoading(false);
+      return;
+    }
+    if (formData.selectedRole === 'guardian') {
+      setError('Cannot register as a Guardian directly via Phone Sign-up.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      if (!recaptchaContainerRef.current) {
+        throw new Error("reCAPTCHA container not found. It's required for phone authentication.");
+      }
+
+      if (window.recaptchaVerifier) {
+        window.recaptchaVerifier.clear();
+      }
+
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
+        'size': 'invisible',
+        'callback': (response: unknown) => {
+          console.log('reCAPTCHA solved:', response);
+        },
+        'expired-callback': () => {
+          console.warn('reCAPTCHA expired.');
+          setError('reCAPTCHA expired. Please try again.');
+          setIsLoading(false);
+        }
+      });
+
+      const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier); // Use phoneInput
+      setConfirmationResult(confirmation);
+      alert('OTP sent to your phone! Please enter it below.');
+    } catch (err) {
+      const firebaseError = err as AuthError;
+      console.error('Error sending OTP:', firebaseError.message, firebaseError.code);
+      let message = 'Failed to send OTP.';
+      if (firebaseError.code === 'auth/too-many-requests') {
+        message = 'Too many requests. Please try again later.';
+      } else if (firebaseError.code === 'auth/invalid-phone-number') {
+        message = 'Invalid phone number format.';
+      } else if (firebaseError.code === 'auth/captcha-check-failed') {
+        message = 'reCAPTCHA verification failed. Please try again.';
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // --- Phone Number (OTP) Sign-up - Step 2: Verify OTP ---
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+
+    if (!otp) {
+      setError('Please enter the OTP.');
+      setIsLoading(false);
+      return;
+    }
+    if (!confirmationResult) {
+      setError('No OTP was sent. Please send OTP first.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const result = await confirmationResult.confirm(otp);
+      const user = result.user;
+
+      await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName); // Pass fullName from form
+
+      alert('Phone number verified and account created!');
+      navigate('/dashboard');
+    } catch (err) {
+      const firebaseError = err as AuthError;
+      console.error('Error verifying OTP:', firebaseError.message, firebaseError.code);
+      let message = 'Failed to verify OTP.';
+      if (firebaseError.code === 'auth/invalid-verification-code') {
+        message = 'Invalid OTP. Please check the code and try again.';
+      } else if (firebaseError.code === 'auth/code-expired') {
+        message = 'The OTP has expired. Please request a new one.';
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -44,194 +325,360 @@ const RegisterPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow-md rounded-lg sm:px-10">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            <div>
-              <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
-                Full Name
-              </label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-gray-400" />
+          {error && (
+            <div className="text-red-600 text-sm text-center p-2 border border-red-300 rounded-md bg-red-50 mb-4">
+              {error}
+            </div>
+          )}
+
+          {/* Role Selection is always visible regardless of auth method */}
+          <div className="mb-6">
+            <label htmlFor="selectedRole" className="block text-sm font-medium text-gray-700">
+              I want to:
+            </label>
+            <div className="mt-1">
+              <select
+                id="selectedRole"
+                name="selectedRole"
+                value={formData.selectedRole}
+                onChange={handleChange}
+                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+              >
+                <option value="explorer">Explore Properties (Explorer)</option>
+                <option value="pioneer">Post Properties (Pioneer)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Conditional rendering of Email/Password Form */}
+          {authMethod === 'email' && (
+            <form className="space-y-6" onSubmit={handleEmailPasswordSubmit}>
+              <div>
+                <label htmlFor="fullName" className="block text-sm font-medium text-gray-700">
+                  Full Name
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="fullName"
+                    name="fullName"
+                    type="text"
+                    required
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="John Doe"
+                  />
                 </div>
-                <input
-                  id="fullName"
-                  name="fullName"
-                  type="text"
-                  required
-                  value={formData.fullName}
-                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                  className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-                  placeholder="John Doe"
-                />
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
-              </label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-gray-400" />
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                  Email address
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="you@example.com"
+                  />
                 </div>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-                  placeholder="you@example.com"
-                />
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                Phone Number
-              </label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Phone className="h-5 w-5 text-gray-400" />
+              <div>
+                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                  Phone Number (Optional for Email/Password)
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Phone className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="+237 6XX XXX XXX"
+                  />
                 </div>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  required
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-                  placeholder="+237 6XX XXX XXX"
-                />
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Lock className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="password"
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5 text-gray-400" />
+                    ) : (
+                      <Eye className="h-5 w-5 text-gray-400" />
+                    )}
+                  </button>
                 </div>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="appearance-none block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <Eye className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                Confirm Password
-              </label>
-              <div className="mt-1 relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+                  Confirm Password
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Lock className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="confirmPassword"
+                    name="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-5 w-5 text-gray-400" />
+                    ) : (
+                      <Eye className="h-5 w-5 text-gray-400" />
+                    )}
+                  </button>
                 </div>
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  required
-                  value={formData.confirmPassword}
-                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                  className="appearance-none block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400" />
-                  ) : (
-                    <Eye className="h-5 w-5 text-gray-400" />
-                  )}
-                </button>
               </div>
-            </div>
 
-            <div className="flex items-center">
-              <input
-                id="agreeToTerms"
-                name="agreeToTerms"
-                type="checkbox"
-                required
-                checked={formData.agreeToTerms}
-                onChange={(e) => setFormData({ ...formData, agreeToTerms: e.target.checked })}
-                className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
-              />
-              <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
-                I agree to the{' '}
-                <Link to="/terms" className="text-primary hover:text-primary-dark">
-                  Terms of Service
-                </Link>{' '}
-                and{' '}
-                <Link to="/privacy" className="text-primary hover:text-primary-dark">
-                  Privacy Policy
-                </Link>
-              </label>
-            </div>
+              <div className="flex items-center">
+                <input
+                  id="agreeToTerms"
+                  name="agreeToTerms"
+                  type="checkbox"
+                  required
+                  checked={formData.agreeToTerms}
+                  onChange={handleChange}
+                  className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                />
+                <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
+                  I agree to the{' '}
+                  <Link to="/terms" className="text-primary hover:text-primary-dark">
+                    Terms of Service
+                  </Link>{' '}
+                  and{' '}
+                  <Link to="/privacy" className="text-primary hover:text-primary-dark">
+                    Privacy Policy
+                  </Link>
+                </label>
+              </div>
 
-            <Button
-              type="submit"
-              className="w-full flex justify-center py-2 px-4"
-              isLoading={isLoading}
-            >
-              {!isLoading && <ArrowRight className="w-5 h-5 mr-2" />}
-              Create Account
-            </Button>
-          </form>
+              <Button
+                type="submit"
+                className="w-full flex justify-center py-2 px-4"
+                isLoading={isLoading}
+              >
+                {!isLoading && <ArrowRight className="w-5 h-5 mr-2" />}
+                Register with Email
+              </Button>
+            </form>
+          )}
 
+          {/* Conditional rendering of Phone Number (OTP) Form */}
+          {authMethod === 'phone' && (
+            <form className="space-y-6" onSubmit={e => e.preventDefault()}> {/* Prevent default form submission */}
+              {/* This full name field will only be visible when phone auth is chosen */}
+              <div>
+                <label htmlFor="fullNamePhone" className="block text-sm font-medium text-gray-700">
+                  Full Name
+                </label>
+                <div className="mt-1 relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    id="fullNamePhone"
+                    name="fullName" // Keep name as 'fullName' to update formData correctly
+                    type="text"
+                    required
+                    value={formData.fullName} // Use formData.fullName
+                    onChange={handleChange}
+                    className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                    placeholder="John Doe"
+                  />
+                </div>
+              </div>
+
+              {!confirmationResult ? (
+                <>
+                  <div>
+                    <label htmlFor="phoneInput" className="block text-sm font-medium text-gray-700">
+                      Phone Number
+                    </label>
+                    <div className="mt-1 relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Phone className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <input
+                        id="phoneInput" // Unique ID
+                        name="phoneInput" // Unique name for this state
+                        type="tel"
+                        value={phoneInput}
+                        onChange={(e) => setPhoneInput(e.target.value)}
+                        className="appearance-none block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                        placeholder="+237 6XX XXX XXX"
+                        required // Make it required for this flow
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center"> {/* Keep agreement checkbox */}
+                    <input
+                      id="agreeToTermsPhone" // Unique ID for phone auth form
+                      name="agreeToTerms"
+                      type="checkbox"
+                      required
+                      checked={formData.agreeToTerms}
+                      onChange={handleChange}
+                      className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+                    />
+                    <label htmlFor="agreeToTermsPhone" className="ml-2 block text-sm text-gray-700">
+                      I agree to the{' '}
+                      <Link to="/terms" className="text-primary hover:text-primary-dark">
+                        Terms of Service
+                      </Link>{' '}
+                      and{' '}
+                      <Link to="/privacy" className="text-primary hover:text-primary-dark">
+                        Privacy Policy
+                      </Link>
+                    </label>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleSendOtp}
+                    isLoading={isLoading}
+                  >
+                    Send OTP
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label htmlFor="otp" className="block text-sm font-medium text-gray-700">
+                      Enter OTP
+                    </label>
+                    <div className="mt-1 relative">
+                      <input
+                        id="otp"
+                        name="otp"
+                        type="text"
+                        value={otp}
+                        onChange={(e) => setOtp(e.target.value)}
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
+                        placeholder="••••••"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleVerifyOtp}
+                    isLoading={isLoading}
+                  >
+                    Verify OTP
+                  </Button>
+                </>
+              )}
+              {/* ReCAPTCHA container - MUST BE PRESENT for Phone Auth */}
+              <div id="recaptcha-container" ref={recaptchaContainerRef} className="mt-4"></div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setAuthMethod('email'); // Switch back to email form
+                  setConfirmationResult(null); // Reset OTP flow
+                  setPhoneInput(''); // Clear phone input
+                  setOtp(''); // Clear OTP input
+                  setError(null); // Clear errors
+                }}
+              >
+                Back to Email Registration
+              </Button>
+            </form>
+          )}
+
+          {/* Or separator */}
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-gray-300" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Or register with</span>
+                <span className="px-2 bg-white text-gray-500">Or</span>
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-2 gap-3">
+            <div className="mt-6 space-y-3">
+              {/* Google Sign-up Button */}
               <Button
                 type="button"
                 variant="outline"
-                className="w-full"
-                onClick={() => {/* TODO: Implement phone registration */}}
+                className="w-full flex justify-center py-2 px-4 items-center"
+                onClick={handleGoogleSignUp}
+                isLoading={isLoading}
               >
-                Phone Number
+                <Globe className="w-5 h-5 mr-2" />
+                Sign Up with Google
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => {/* TODO: Implement OTP registration */}}
-              >
-                OTP
-              </Button>
+
+              {/* Phone Sign-up Button (visible only if email method is active) */}
+              {authMethod === 'email' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full flex justify-center py-2 px-4 items-center"
+                  onClick={() => {
+                    setAuthMethod('phone');
+                    setError(null); // Clear errors when switching method
+                  }}
+                >
+                  <Phone className="w-5 h-5 mr-2" />
+                  Sign Up with Phone Number
+                </Button>
+              )}
             </div>
           </div>
         </div>
