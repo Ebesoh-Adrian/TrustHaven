@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft } from 'lucide-react'; // Added ArrowLeft
 import { Button } from '../../components/ui/Button';
 import axios from '../../api/axios';
 
@@ -23,7 +23,7 @@ import { UserRole } from '../../types'; // Ensure correct path for types
 interface RegisterFormData {
   fullName: string;
   email: string;
-  phone: string;
+  phone: string; // This 'phone' is only used if registering via email/password
   password: string;
   confirmPassword: string;
   agreeToTerms: boolean;
@@ -53,7 +53,7 @@ const RegisterPage: React.FC = () => {
   const [phoneInput, setPhoneInput] = useState(''); // Separate state for phone number input in OTP flow
   const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const recaptchaContainerRef = useRef<HTMLDivElement>(null);
+  const recaptchaContainerRef = useRef<HTMLDivElement>(null); // Ref for the reCAPTCHA container
 
   const [formData, setFormData] = useState<RegisterFormData>({
     fullName: '',
@@ -62,7 +62,7 @@ const RegisterPage: React.FC = () => {
     password: '',
     confirmPassword: '',
     agreeToTerms: false,
-    selectedRole: 'explorer',
+    selectedRole: 'explorer', // Default to 'explorer' (User)
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -89,7 +89,7 @@ const RegisterPage: React.FC = () => {
         email: email,
         username: displayName || email?.split('@')[0] || phoneNumber || 'New User',
         phoneNumber: phoneNumber,
-        role: formData.selectedRole,
+        role: formData.selectedRole, // Use the selected role from the form
         createdAt: Timestamp.now(),
         status: 'active',
       });
@@ -97,7 +97,13 @@ const RegisterPage: React.FC = () => {
     } else {
       console.log('Existing user profile found in Firestore, merging data.');
       // Update last login time and potentially phone number if it wasn't there before
-      await setDoc(userDocRef, { lastLogin: Timestamp.now(), phoneNumber: phoneNumber || userDocSnap.data().phoneNumber || null }, { merge: true });
+      await setDoc(userDocRef, {
+        lastLogin: Timestamp.now(),
+        phoneNumber: phoneNumber || userDocSnap.data().phoneNumber || null,
+        // If role was not set during initial signup, set it now.
+        // Or if it was, ensure it's not overwritten if it was previously set.
+        role: userDocSnap.data().role || formData.selectedRole,
+      }, { merge: true });
     }
   };
 
@@ -114,9 +120,9 @@ const RegisterPage: React.FC = () => {
       return;
     }
     if (formData.password.length < 8) {
-        setError('Password must be at least 8 characters long.');
-        setIsLoading(false);
-        return;
+      setError('Password must be at least 8 characters long.');
+      setIsLoading(false);
+      return;
     }
     if (!formData.agreeToTerms) {
       setError('You must agree to the Terms of Service and Privacy Policy.');
@@ -124,35 +130,42 @@ const RegisterPage: React.FC = () => {
       return;
     }
     if (formData.selectedRole === 'guardian') {
-      setError('Cannot register as a Guardian directly.');
+      setError('Cannot register as a Guardian directly. Please contact support.');
       setIsLoading(false);
       return;
     }
 
     try {
+      // IMPORTANT: Ensure your Firebase project ID is correctly set in .env file
+      // and that your Firebase Cloud Function 'signup' is deployed and accessible.
+      // If running locally, ensure Firebase Emulators are active.
       const FUNCTIONS_EMULATOR_URL = `http://127.0.0.1:5001/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/signup`;
 
       const response = await axios.post(FUNCTIONS_EMULATOR_URL, {
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
-        phone: formData.phone,
+        phone: formData.phone, // This phone is for the initial profile creation, not for auth itself
         selectedRole: formData.selectedRole,
       }, {
         withCredentials: true
       });
 
       console.log('Registration successful:', response.data);
-      alert('Account created successfully! Please sign in.');
+      alert('Account created successfully! Please sign in with your email and password.');
       navigate('/login');
 
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        console.error('Registration failed:', err.response?.data?.message || err.message);
+        const errorMessage =
+          axios.isAxiosError(err)
+            ? err.response?.data?.message || err.message
+            : (err instanceof Error ? err.message : String(err));
+        console.error('Registration failed:', errorMessage);
         setError(err.response?.data?.message || 'Registration failed. Please try again.');
       } else {
         console.error('Registration failed:', (err as Error).message);
-        setError('Registration failed. Please try again.');
+        setError('Registration failed: An unexpected error occurred.');
       }
     } finally {
       setIsLoading(false);
@@ -170,7 +183,7 @@ const RegisterPage: React.FC = () => {
       return;
     }
     if (formData.selectedRole === 'guardian') {
-      setError('Cannot register as a Guardian directly via Google Sign-up.');
+      setError('Cannot register as a Guardian directly via Google Sign-up. Please contact support.');
       setIsLoading(false);
       return;
     }
@@ -189,11 +202,13 @@ const RegisterPage: React.FC = () => {
       console.error('Google registration failed:', firebaseError.message, firebaseError.code);
       let message = 'Google registration failed.';
       if (firebaseError.code === 'auth/popup-closed-by-user') {
-        message = 'Google sign-in popup was closed.';
+        message = 'Google sign-in popup was closed or cancelled.';
       } else if (firebaseError.code === 'auth/cancelled-popup-request') {
         message = 'Google sign-in popup already open or cancelled.';
       } else if (firebaseError.code === 'auth/account-exists-with-different-credential') {
-        message = 'An account with this email already exists using different sign-in methods.';
+        message = 'An account with this email already exists using different sign-in methods (e.g., email/password). Try logging in with the existing method or linking accounts.';
+      } else if (firebaseError.code === 'auth/network-request-failed') {
+        message = 'Network error during Google sign-up. Check your internet connection.';
       }
       setError(message);
     } finally {
@@ -218,7 +233,7 @@ const RegisterPage: React.FC = () => {
       return;
     }
     if (formData.selectedRole === 'guardian') {
-      setError('Cannot register as a Guardian directly via Phone Sign-up.');
+      setError('Cannot register as a Guardian directly via Phone Sign-up. Please contact support.');
       setIsLoading(false);
       return;
     }
@@ -228,21 +243,28 @@ const RegisterPage: React.FC = () => {
         throw new Error("reCAPTCHA container not found. It's required for phone authentication.");
       }
 
+      // Clear any previous reCAPTCHA instances before creating a new one
       if (window.recaptchaVerifier) {
         window.recaptchaVerifier.clear();
       }
 
       window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-        'size': 'invisible',
+        'size': 'invisible', // Can be 'normal' for a visible widget
         'callback': (response: unknown) => {
+          // reCAPTCHA solved, this callback fires when the user is verified.
           console.log('reCAPTCHA solved:', response);
         },
         'expired-callback': () => {
+          // Response expired. Ask user to solve reCAPTCHA again.
           console.warn('reCAPTCHA expired.');
           setError('reCAPTCHA expired. Please try again.');
-          setIsLoading(false);
+          setIsLoading(false); // Stop loading if reCAPTCHA expires
         }
       });
+
+      // Explicitly call verify if using invisible reCAPTCHA before signInWithPhoneNumber,
+      // though signInWithPhoneNumber often implicitly handles it.
+      await window.recaptchaVerifier.verify();
 
       const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier); // Use phoneInput
       setConfirmationResult(confirmation);
@@ -254,7 +276,13 @@ const RegisterPage: React.FC = () => {
       if (firebaseError.code === 'auth/too-many-requests') {
         message = 'Too many requests. Please try again later.';
       } else if (firebaseError.code === 'auth/invalid-phone-number') {
-        message = 'Invalid phone number format.';
+        message = 'Invalid phone number format. Please include country code (e.g., +2376xxxxxxxxx).';
+      } else if (firebaseError.code === 'auth/quota-exceeded') {
+        message = 'SMS quota exceeded. Please try again later.';
+      } else if (firebaseError.code === 'auth/web-storage-unsupported') {
+        message = 'Browser storage is disabled or unavailable, which is required for reCAPTCHA.';
+      } else if (firebaseError.code === 'auth/missing-phone-number') {
+        message = 'Phone number is missing.';
       } else if (firebaseError.code === 'auth/captcha-check-failed') {
         message = 'reCAPTCHA verification failed. Please try again.';
       }
@@ -285,7 +313,8 @@ const RegisterPage: React.FC = () => {
       const result = await confirmationResult.confirm(otp);
       const user = result.user;
 
-      await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName); // Pass fullName from form
+      // Ensure the user's full name from the form is passed here for profile creation
+      await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName);
 
       alert('Phone number verified and account created!');
       navigate('/dashboard');
@@ -297,6 +326,8 @@ const RegisterPage: React.FC = () => {
         message = 'Invalid OTP. Please check the code and try again.';
       } else if (firebaseError.code === 'auth/code-expired') {
         message = 'The OTP has expired. Please request a new one.';
+      } else if (firebaseError.code === 'auth/user-disabled') {
+        message = 'This user account has been disabled.';
       }
       setError(message);
     } finally {
@@ -312,18 +343,17 @@ const RegisterPage: React.FC = () => {
             <span className="text-2xl font-bold text-white">TH</span>
           </div>
         </Link>
-        <h2 className="text-center text-3xl font-bold text-gray-900">
-          Create your account
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Already have an account?{' '}
-          <Link to="/login" className="text-primary hover:text-primary-dark">
-            Sign in
+        <h2 className="text-center text-3xl font-bold text-gray-900 flex items-center justify-center relative">
+          {/* Back to Home Link */}
+          <Link to="/" className="absolute left-0 top-1/2 -translate-y-1/2 ml-4 text-gray-600 hover:text-gray-900">
+            <ArrowLeft className="w-6 h-6" />
           </Link>
-        </p>
+          <User className="w-8 h-8 mr-2 text-gray-400" />
+          Sign Up
+        </h2>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mt-2 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow-md rounded-lg sm:px-10">
           {error && (
             <div className="text-red-600 text-sm text-center p-2 border border-red-300 rounded-md bg-red-50 mb-4">
@@ -331,24 +361,31 @@ const RegisterPage: React.FC = () => {
             </div>
           )}
 
-          {/* Role Selection is always visible regardless of auth method */}
-          <div className="mb-6">
-            <label htmlFor="selectedRole" className="block text-sm font-medium text-gray-700">
-              I want to:
-            </label>
-            <div className="mt-1">
-              <select
-                id="selectedRole"
-                name="selectedRole"
-                value={formData.selectedRole}
-                onChange={handleChange}
-                className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"
-              >
-                <option value="explorer">Explore Properties (Explorer)</option>
-                <option value="pioneer">Post Properties (Pioneer)</option>
-              </select>
-            </div>
+          {/* Styled "Sign Up as" Text */}
+          <p className="mt-2 mb-4 text-center text-md font-semibold text-gray-700"> {/* Increased font, added weight and margin */}
+            Sign Up as
+          </p>
+
+          {/* Role Selection Buttons at the top */}
+          <div className="mb-6 flex justify-center space-x-4">
+            <Button
+              type="button"
+              variant={formData.selectedRole === 'explorer' ? 'default' : 'outline'}
+              className="px-6 py-2"
+              onClick={() => setFormData(prev => ({ ...prev, selectedRole: 'explorer' }))}
+            >
+              User
+            </Button>
+            <Button
+              type="button"
+              variant={formData.selectedRole === 'pioneer' ? 'default' : 'outline'}
+              className="px-6 py-2"
+              onClick={() => setFormData(prev => ({ ...prev, selectedRole: 'pioneer' }))}
+            >
+              Business
+            </Button>
           </div>
+          {/* End Role Selection Buttons */}
 
           {/* Conditional rendering of Email/Password Form */}
           {authMethod === 'email' && (
@@ -492,11 +529,11 @@ const RegisterPage: React.FC = () => {
                 />
                 <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
                   I agree to the{' '}
-                  <Link to="/terms" className="text-primary hover:text-primary-dark">
+                  <Link to="/terms" className="text-primary hover:text-primary-dark" target="_blank" rel="noopener noreferrer">
                     Terms of Service
                   </Link>{' '}
                   and{' '}
-                  <Link to="/privacy" className="text-primary hover:text-primary-dark">
+                  <Link to="/privacy" className="text-primary hover:text-primary-dark" target="_blank" rel="noopener noreferrer">
                     Privacy Policy
                   </Link>
                 </label>
@@ -526,7 +563,7 @@ const RegisterPage: React.FC = () => {
                     <User className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
-                    id="fullNamePhone"
+                    id="fullNamePhone" // Unique ID
                     name="fullName" // Keep name as 'fullName' to update formData correctly
                     type="text"
                     required
@@ -572,19 +609,18 @@ const RegisterPage: React.FC = () => {
                     />
                     <label htmlFor="agreeToTermsPhone" className="ml-2 block text-sm text-gray-700">
                       I agree to the{' '}
-                      <Link to="/terms" className="text-primary hover:text-primary-dark">
+                      <Link to="/terms" className="text-primary hover:text-primary-dark" target="_blank" rel="noopener noreferrer">
                         Terms of Service
                       </Link>{' '}
                       and{' '}
-                      <Link to="/privacy" className="text-primary hover:text-primary-dark">
+                      <Link to="/privacy" className="text-primary hover:text-primary-dark" target="_blank" rel="noopener noreferrer">
                         Privacy Policy
                       </Link>
                     </label>
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="w-full"
+                    className="w-full flex justify-center py-2 px-4" // Main action button, so not outline
                     onClick={handleSendOtp}
                     isLoading={isLoading}
                   >
@@ -612,8 +648,7 @@ const RegisterPage: React.FC = () => {
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="w-full"
+                    className="w-full flex justify-center py-2 px-4" // Main action button, so not outline
                     onClick={handleVerifyOtp}
                     isLoading={isLoading}
                   >
@@ -621,7 +656,9 @@ const RegisterPage: React.FC = () => {
                   </Button>
                 </>
               )}
-              {/* ReCAPTCHA container - MUST BE PRESENT for Phone Auth */}
+              {/* reCAPTCHA container - MUST BE PRESENT for Phone Auth */}
+              {/* This div must be in the DOM for RecaptchaVerifier to attach to. */}
+              {/* It's usually invisible by default but needs to be rendered. */}
               <div id="recaptcha-container" ref={recaptchaContainerRef} className="mt-4"></div>
               <Button
                 type="button"
@@ -633,6 +670,9 @@ const RegisterPage: React.FC = () => {
                   setPhoneInput(''); // Clear phone input
                   setOtp(''); // Clear OTP input
                   setError(null); // Clear errors
+                  if (window.recaptchaVerifier) { // Clear reCAPTCHA instance
+                    window.recaptchaVerifier.clear();
+                  }
                 }}
               >
                 Back to Email Registration
@@ -672,6 +712,8 @@ const RegisterPage: React.FC = () => {
                   className="w-full flex justify-center py-2 px-4 items-center"
                   onClick={() => {
                     setAuthMethod('phone');
+                    // Clear email/password fields if switching from email method
+                    setFormData(prev => ({ ...prev, email: '', password: '', confirmPassword: '', phone: '' }));
                     setError(null); // Clear errors when switching method
                   }}
                 >
@@ -681,6 +723,13 @@ const RegisterPage: React.FC = () => {
               )}
             </div>
           </div>
+          {/* Moved 'Already have an account?' link to the very bottom */}
+          <p className="mt-4 text-center text-sm text-gray-600">
+            Already have an account?{' '}
+            <Link to="/login" className="text-primary hover:text-primary-dark">
+              Sign in
+            </Link>
+          </p>
         </div>
       </div>
     </div>
