@@ -6,17 +6,19 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  // These directly reference the VITE_ prefixed variables from your .env file
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: "AIzaSyAgQ-NXLIkcsIN3c3j-NrmwtU9u7Z-dUO0",
+  authDomain: "trusthaven-webapp.firebaseapp.com",
+  projectId: "trusthaven-webapp",
+  storageBucket: "trusthaven-webapp.firebasestorage.app",
+  messagingSenderId: "596883432737",
+  appId: "1:596883432737:web:725f3bd10104ef32248a60",
+  measurementId: "G-0SWNDP36V0"
 };
 
+VITE_FIREBASE_APP_ID="1:596883432737:web:725f3bd10104ef32248a60"
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
