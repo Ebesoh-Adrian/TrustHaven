@@ -1,8 +1,8 @@
 // trusthaven-frontend/src/pages/auth/RegisterPage.tsx
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react'; // Added useEffect
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft } from 'lucide-react'; // Added ArrowLeft
+import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft, CheckCircle, XCircle } from 'lucide-react'; // Added CheckCircle, XCircle for toast
 import { Button } from '../../components/ui/Button';
 import axios from '../../api/axios';
 
@@ -43,8 +43,32 @@ const RegisterPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null); // For form-specific errors
   const navigate = useNavigate();
+
+  // State for global toast messages (success/error)
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'error' | null>(null);
+  const [showToast, setShowToast] = useState(false);
+
+  // Effect to hide the toast after a few seconds
+  useEffect(() => {
+    if (showToast) {
+      const timer = setTimeout(() => {
+        setShowToast(false);
+        setToastMessage(null);
+        setToastType(null);
+      }, 5000); // Hide after 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [showToast]);
+
+  // Function to show toast
+  const displayToast = (message: string, type: 'success' | 'error') => {
+    setToastMessage(message);
+    setToastType(type);
+    setShowToast(true);
+  };
 
   // State to manage which authentication method's UI is active
   const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email'); // 'email' or 'phone'
@@ -53,7 +77,8 @@ const RegisterPage: React.FC = () => {
   const [phoneInput, setPhoneInput] = useState(''); // Separate state for phone number input in OTP flow
   const [otp, setOtp] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const recaptchaContainerRef = useRef<HTMLDivElement>(null); // Ref for the reCAPTCHA container
+  const recaptchaContainerRef = useRef<HTMLHTMLDivElement>(null); // Ref for the reCAPTCHA container
+
 
   const [formData, setFormData] = useState<RegisterFormData>({
     fullName: '',
@@ -112,7 +137,7 @@ const RegisterPage: React.FC = () => {
   const handleEmailPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setError(null); // Clear form-specific errors
 
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match.');
@@ -136,12 +161,15 @@ const RegisterPage: React.FC = () => {
     }
 
     try {
-      // IMPORTANT: Ensure your Firebase project ID is correctly set in .env file
-      // and that your Firebase Cloud Function 'signup' is deployed and accessible.
-      // If running locally, ensure Firebase Emulators are active.
-      const FUNCTIONS_EMULATOR_URL = `http://127.0.0.1:5001/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/signup`;
+      // Dynamically determine the Cloud Functions base URL
+      const FUNCTIONS_BASE_URL = import.meta.env.PROD
+        ? import.meta.env.VITE_CLOUD_FUNCTIONS_BASE_URL_PROD
+        : import.meta.env.VITE_CLOUD_FUNCTIONS_BASE_URL_DEV;
 
-      const response = await axios.post(FUNCTIONS_EMULATOR_URL, {
+      // Construct the full Cloud Function URL
+      const FUNCTIONS_SIGNUP_URL = `${FUNCTIONS_BASE_URL}/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/signup`;
+
+      const response = await axios.post(FUNCTIONS_SIGNUP_URL, {
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
@@ -152,20 +180,20 @@ const RegisterPage: React.FC = () => {
       });
 
       console.log('Registration successful:', response.data);
-      alert('Account created successfully! Please sign in with your email and password.');
+      displayToast('Account created successfully! Please sign in with your email and password.', 'success');
       navigate('/login');
 
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        const errorMessage =
-          axios.isAxiosError(err)
-            ? err.response?.data?.message || err.message
-            : (err instanceof Error ? err.message : String(err));
+        const errorMessage = err.response?.data?.message || err.message;
         console.error('Registration failed:', errorMessage);
-        setError(err.response?.data?.message || 'Registration failed. Please try again.');
+        setError(errorMessage); // Set form-specific error
+        displayToast(errorMessage, 'error'); // Also show as global toast
       } else {
-        console.error('Registration failed:', (err as Error).message);
+        const errorMessage = (err as Error).message;
+        console.error('Registration failed:', errorMessage);
         setError('Registration failed: An unexpected error occurred.');
+        displayToast('Registration failed: An unexpected error occurred.', 'error');
       }
     } finally {
       setIsLoading(false);
@@ -175,7 +203,7 @@ const RegisterPage: React.FC = () => {
   // --- Google Sign-up ---
   const handleGoogleSignUp = async () => {
     setIsLoading(true);
-    setError(null);
+    setError(null); // Clear form-specific errors
 
     if (!formData.agreeToTerms) {
       setError('You must agree to the Terms of Service and Privacy Policy before signing up with Google.');
@@ -195,7 +223,7 @@ const RegisterPage: React.FC = () => {
 
       await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, user.displayName);
 
-      alert('Successfully signed up with Google!');
+      displayToast('Successfully signed up with Google!', 'success');
       navigate('/dashboard');
     } catch (err) {
       const firebaseError = err as AuthError;
@@ -210,7 +238,8 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/network-request-failed') {
         message = 'Network error during Google sign-up. Check your internet connection.';
       }
-      setError(message);
+      setError(message); // Set form-specific error
+      displayToast(message, 'error'); // Also show as global toast
     } finally {
       setIsLoading(false);
     }
@@ -220,7 +249,7 @@ const RegisterPage: React.FC = () => {
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setError(null); // Clear form-specific errors
 
     if (!phoneInput) { // Use phoneInput state for this flow
       setError('Please enter your phone number.');
@@ -257,7 +286,9 @@ const RegisterPage: React.FC = () => {
         'expired-callback': () => {
           // Response expired. Ask user to solve reCAPTCHA again.
           console.warn('reCAPTCHA expired.');
-          setError('reCAPTCHA expired. Please try again.');
+          const msg = 'reCAPTCHA expired. Please try again.';
+          setError(msg); // Set form-specific error
+          displayToast(msg, 'error'); // Also show as global toast
           setIsLoading(false); // Stop loading if reCAPTCHA expires
         }
       });
@@ -268,7 +299,7 @@ const RegisterPage: React.FC = () => {
 
       const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier); // Use phoneInput
       setConfirmationResult(confirmation);
-      alert('OTP sent to your phone! Please enter it below.');
+      displayToast('OTP sent to your phone! Please enter it below.', 'success');
     } catch (err) {
       const firebaseError = err as AuthError;
       console.error('Error sending OTP:', firebaseError.message, firebaseError.code);
@@ -286,7 +317,8 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/captcha-check-failed') {
         message = 'reCAPTCHA verification failed. Please try again.';
       }
-      setError(message);
+      setError(message); // Set form-specific error
+      displayToast(message, 'error'); // Also show as global toast
     } finally {
       setIsLoading(false);
     }
@@ -296,7 +328,7 @@ const RegisterPage: React.FC = () => {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setError(null); // Clear form-specific errors
 
     if (!otp) {
       setError('Please enter the OTP.');
@@ -316,7 +348,7 @@ const RegisterPage: React.FC = () => {
       // Ensure the user's full name from the form is passed here for profile creation
       await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName);
 
-      alert('Phone number verified and account created!');
+      displayToast('Phone number verified and account created!', 'success');
       navigate('/dashboard');
     } catch (err) {
       const firebaseError = err as AuthError;
@@ -329,7 +361,8 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/user-disabled') {
         message = 'This user account has been disabled.';
       }
-      setError(message);
+      setError(message); // Set form-specific error
+      displayToast(message, 'error'); // Also show as global toast
     } finally {
       setIsLoading(false);
     }
@@ -337,6 +370,18 @@ const RegisterPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      {/* Toast Notification */}
+      {showToast && toastMessage && (
+        <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center space-x-2 z-50
+          ${toastType === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+          {toastType === 'success' ? <CheckCircle className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+          <p className="text-sm font-medium">{toastMessage}</p>
+          <button onClick={() => setShowToast(false)} className="ml-auto p-1 rounded-full hover:bg-white hover:bg-opacity-20">
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <Link to="/" className="flex justify-center mb-5">
           <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center">
