@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'; // Added useEffect
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, User, Phone, ArrowRight, Globe, ArrowLeft, CheckCircle, XCircle } from 'lucide-react'; // Added CheckCircle, XCircle for toast
 import { Button } from '../../components/ui/Button';
-import axios from '../../api/axios';
+import axios from 'axios';
 
 // Firebase Client SDK Imports
 import {
@@ -91,7 +91,8 @@ const RegisterPage: React.FC = () => {
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value, type, checked } = e.target;
+    const target = e.target as HTMLInputElement;
+    const { name, value, type, checked } = target;
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
