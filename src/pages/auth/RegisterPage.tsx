@@ -18,8 +18,9 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, Timestamp, getDoc } from 'firebase/firestore';
 // Import auth, db, AND firebaseConfig from your firebase.ts file
-import { auth, db } from '../../../firebase/firebase'; // Ensure this path is correct
-import { UserRole } from '../../types';
+// Ensure this path (../../../firebase/firebase) is correct relative to RegisterPage.tsx
+import { auth, db } from '../../../firebase/firebase';
+import { UserRole } from '../../types'; // Ensure you have this type defined, e.g., export type UserRole = 'explorer' | 'pioneer' | 'guardian';
 
 // Define a type for your form data
 interface RegisterFormData {
@@ -125,14 +126,29 @@ const RegisterPage: React.FC = () => {
       console.log('User profile created in Firestore.');
     } else {
       console.log('Existing user profile found in Firestore, merging data.');
+      // Update only if phone number or role is new/different, and last login
       await setDoc(userDocRef, {
         lastLogin: Timestamp.now(),
         phoneNumber: phoneNumber || userDocSnap.data().phoneNumber || null,
-        role: userDocSnap.data().role || formData.selectedRole,
+        role: userDocSnap.data().role || formData.selectedRole, // Keep existing role if present, otherwise set from form
       }, { merge: true });
     }
   };
 
+  // Helper function for redirection based on role
+  const redirectToDashboard = (role: UserRole) => {
+    if (role === 'explorer') {
+      navigate('/user-dashboard'); // Redirect to user dashboard
+    } else if (role === 'pioneer') {
+      navigate('/business-dashboard'); // Redirect to business dashboard
+    } else {
+      // Fallback for unexpected roles or guardians (who shouldn't register directly)
+      console.warn(`Attempted to redirect user with role '${role}' to an unknown dashboard. Defaulting to login.`);
+      navigate('/login');
+    }
+  };
+// ... (Previous code including imports, state, handleChange, navigate,
+  //          createUserProfileInFirestore, and redirectToDashboard) ...
 
   // --- Email/Password Registration (via Cloud Function) ---
   const handleEmailPasswordSubmit = async (e: React.FormEvent) => {
@@ -168,13 +184,14 @@ const RegisterPage: React.FC = () => {
         throw new Error('Firebase Project ID is not configured in firebase.ts');
       }
 
-      // Dynamically determine the Cloud Functions base URL without .env variables for paths
+      // Dynamically determine the Cloud Functions base URL (emulator vs. deployed)
+      // This assumes 'us-central1' is your function's region. Adjust if different.
       const FUNCTIONS_BASE_URL = import.meta.env.PROD
         ? `https://${projectId}.cloudfunctions.net` // Production URL
-        : `http://127.0.0.1:5001`; // Local emulator URL
+        : `http://127.0.0.1:5001/${projectId}/us-central1`; // Local emulator URL for specific project/region
 
-      // Construct the full Cloud Function URL
-      const FUNCTIONS_SIGNUP_URL = `${FUNCTIONS_BASE_URL}/us-central1/signup`; // Removed projectId from the path
+      // Construct the full Cloud Function URL for signup
+      const FUNCTIONS_SIGNUP_URL = `${FUNCTIONS_BASE_URL}/signup`;
 
       // Use the 'axios' instance imported from '../../api/axios'
       const response = await axios.post(FUNCTIONS_SIGNUP_URL, {
@@ -183,23 +200,33 @@ const RegisterPage: React.FC = () => {
         fullName: formData.fullName,
         phone: formData.phone,
         selectedRole: formData.selectedRole,
-      }); // withCredentials: true is set in '../../api/axios' now
+      });
 
       console.log('Registration successful:', response.data);
-      displayToast('Account created successfully! Please sign in with your email and password.', 'success');
-      navigate('/login');
+      displayToast('Account created successfully! Redirecting to dashboard...', 'success');
+      // Redirect based on the role selected in the form
+      redirectToDashboard(formData.selectedRole);
 
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        const errorMessage = err.response?.data?.message || err.message;
-        console.error('Registration failed:', errorMessage);
-        setError(errorMessage);
-        displayToast(errorMessage, 'error');
+        // Log Axios error details for debugging
+        const axiosErr = err as unknown;
+        if (typeof axiosErr === 'object' && axiosErr !== null && 'response' in axiosErr && 'message' in axiosErr) {
+          // TypeScript type guard for AxiosError
+          const errorObj = axiosErr as { response?: { data?: { message?: string } }; message?: string; toJSON?: () => unknown };
+          console.error('Registration failed (Axios Error):', errorObj.response?.data || errorObj.message, errorObj.toJSON?.());
+          const errorMessage = errorObj.response?.data?.message || errorObj.message;
+          setError(errorMessage || 'An error occurred.');
+          displayToast(errorMessage || 'An error occurred.', 'error');
+        } else {
+          setError('Registration failed: An unknown error occurred.');
+          displayToast('Registration failed: An unknown error occurred.', 'error');
+        }
       } else {
-        const errorMessage = (err as Error).message;
-        console.error('Registration failed:', errorMessage);
-        setError('Registration failed: An unexpected error occurred.');
-        displayToast('Registration failed: An unexpected error occurred.', 'error');
+        // Log generic error details
+        console.error('Registration failed (Unexpected Error):', err);
+        setError('Registration failed: An unexpected error occurred. Check console for details.');
+        displayToast('Registration failed: An unexpected error occurred. Please try again.', 'error');
       }
     } finally {
       setIsLoading(false);
@@ -227,10 +254,12 @@ const RegisterPage: React.FC = () => {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
+      // Create or update user profile in Firestore
       await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, user.displayName);
 
-      displayToast('Successfully signed up with Google!', 'success');
-      navigate('/dashboard');
+      displayToast('Successfully signed up with Google! Redirecting to dashboard...', 'success');
+      // Redirect based on the role selected in the form
+      redirectToDashboard(formData.selectedRole);
     } catch (err) {
       const firebaseError = err as AuthError;
       console.error('Google registration failed:', firebaseError.message, firebaseError.code);
@@ -240,11 +269,13 @@ const RegisterPage: React.FC = () => {
       } else if (firebaseError.code === 'auth/cancelled-popup-request') {
         message = 'Google sign-in popup already open or cancelled.';
       } else if (firebaseError.code === 'auth/account-exists-with-different-credential') {
-        message = 'An account with this email already exists using different sign-in methods (e.g., email/password). Try logging in with the existing method or linking accounts.';
+        message = 'An account with this email already exists using a different sign-in method. Try logging in with the existing method or linking accounts.';
       } else if (firebaseError.code === 'auth/network-request-failed') {
         message = 'Network error during Google sign-up. Check your internet connection.';
       } else if (firebaseError.code === 'auth/unauthorized-domain') {
         message = 'Google sign-in failed: Domain not authorized. Check Firebase Authentication settings.';
+      } else if (firebaseError.code === 'auth/operation-not-supported-in-this-environment') {
+        message = 'Google Sign-In is not enabled for your project or environment. Check Firebase Authentication settings.';
       }
       setError(message);
       displayToast(message, 'error');
@@ -286,9 +317,10 @@ const RegisterPage: React.FC = () => {
       }
 
       window.recaptchaVerifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-        'size': 'invisible',
+        'size': 'invisible', // Can be 'normal' for a visible captcha
         'callback': (response: unknown) => {
           console.log('reCAPTCHA solved:', response);
+          // reCAPTCHA is solved, proceed with sending OTP
         },
         'expired-callback': () => {
           console.warn('reCAPTCHA expired.');
@@ -299,6 +331,7 @@ const RegisterPage: React.FC = () => {
         }
       });
 
+      // Execute reCAPTCHA verification
       await window.recaptchaVerifier.verify();
 
       const confirmation = await signInWithPhoneNumber(auth, phoneInput, window.recaptchaVerifier);
@@ -349,10 +382,12 @@ const RegisterPage: React.FC = () => {
       const result = await confirmationResult.confirm(otp);
       const user = result.user;
 
+      // Create or update user profile in Firestore
       await createUserProfileInFirestore(user.uid, user.email, user.phoneNumber, formData.fullName);
 
-      displayToast('Phone number verified and account created!', 'success');
-      navigate('/dashboard');
+      displayToast('Phone number verified and account created! Redirecting to dashboard...', 'success');
+      // Redirect based on the role selected in the form
+      redirectToDashboard(formData.selectedRole);
     } catch (err) {
       const firebaseError = err as AuthError;
       console.error('Error verifying OTP:', firebaseError.message, firebaseError.code);
@@ -697,6 +732,7 @@ const RegisterPage: React.FC = () => {
                   </Button>
                 </>
               )}
+              {/* This div is crucial for reCAPTCHA to render correctly */}
               <div id="recaptcha-container" ref={recaptchaContainerRef} className="mt-4"></div>
               <Button
                 type="button"
@@ -709,10 +745,11 @@ const RegisterPage: React.FC = () => {
                   setOtp('');
                   setError(null);
                   if (window.recaptchaVerifier) {
-                    window.recaptchaVerifier.clear();
+                    window.recaptchaVerifier.clear(); // Clear reCAPTCHA when switching away
                   }
                 }}
               >
+                <ArrowLeft className="h-5 w-5 mr-2" />
                 Back to Email Registration
               </Button>
             </form>
